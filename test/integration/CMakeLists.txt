@@ -2,7 +2,7 @@ set(TEST_TYPE "INTEGRATION")
 
 set(tests
   ackermann_steering_system.cc
-  added_mass.cc
+  added_mass_integration.cc
   air_pressure_system.cc
   altimeter_system.cc
   apply_joint_force_system.cc
