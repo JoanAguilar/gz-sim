@@ -91,10 +91,14 @@ class SinusoidalWrenchPlugin:
   ) override;
 
   public: gz::sim::EntityComponentManager *ecm{nullptr};
+
+  public: gz::sim::Entity link_entity;
 };
 
-// Store a reference to the ECM as an attribute so it can be used after the
-// test has run.
+// Store a reference to the ECM and to the link entity.
+//
+// The reference to the ECM is stored so it can be retrieved after the server
+// has run.
 void SinusoidalWrenchPlugin::Configure(
   const gz::sim::Entity &,
   const std::shared_ptr<const sdf::Element> &,
@@ -103,14 +107,7 @@ void SinusoidalWrenchPlugin::Configure(
 )
 {
   this->ecm = &_ecm;
-};
 
-// Apply sinusoidal wrench before integration.
-void SinusoidalWrenchPlugin::PreUpdate(
-  const gz::sim::UpdateInfo &_info,
-  gz::sim::EntityComponentManager &_ecm
-)
-{
   gz::sim::Entity model_entity = _ecm.EntityByComponents(
     gz::sim::components::Name(kModelName),
     gz::sim::components::Model()
@@ -120,13 +117,23 @@ void SinusoidalWrenchPlugin::PreUpdate(
   gz::sim::Model model = gz::sim::Model(model_entity);
   ASSERT_TRUE(model.Valid(_ecm));
 
-  gz::sim::Entity link_entity = model.LinkByName(_ecm, kLinkName);
-  ASSERT_NE(link_entity, gz::sim::kNullEntity);
-  _ecm.CreateComponent(link_entity, gz::sim::components::WorldPose());
+  this->link_entity = model.LinkByName(_ecm, kLinkName);
+  ASSERT_NE(this->link_entity, gz::sim::kNullEntity);
+  _ecm.CreateComponent(this->link_entity, gz::sim::components::WorldPose());
 
   gz::sim::Link link = gz::sim::Link(link_entity);
   ASSERT_TRUE(link.Valid(_ecm));
   link.EnableVelocityChecks(_ecm);
+};
+
+// Apply sinusoidal wrench before integration.
+void SinusoidalWrenchPlugin::PreUpdate(
+  const gz::sim::UpdateInfo &_info,
+  gz::sim::EntityComponentManager &_ecm
+)
+{
+  gz::sim::Link link = gz::sim::Link(this->link_entity);
+  ASSERT_TRUE(link.Valid(_ecm));
 
   // Get time in seconds.
   double t = std::chrono::duration<double>(_info.simTime).count();
@@ -163,18 +170,8 @@ TEST_F(EmptyTestFixture, MotionTest) {
   ASSERT_FALSE(server.Running());
   ASSERT_TRUE(server.Run(true, kIter, false));
 
-  // Get link value.
   gz::sim::EntityComponentManager *ecm = system->ecm;
-  gz::sim::Entity model_entity = ecm->EntityByComponents(
-    gz::sim::components::Name(kModelName),
-    gz::sim::components::Model()
-  );
-  ASSERT_NE(model_entity, gz::sim::kNullEntity);
-  gz::sim::Model model = gz::sim::Model(model_entity);
-  ASSERT_TRUE(model.Valid(*ecm));
-  gz::sim::Entity link_entity = model.LinkByName(*ecm, kLinkName);
-  ASSERT_NE(link_entity, gz::sim::kNullEntity);
-  gz::sim::Link link = gz::sim::Link(link_entity);
+  gz::sim::Link link = gz::sim::Link(system->link_entity);
   ASSERT_TRUE(link.Valid(*ecm));
 
   const std::optional<gz::math::Pose3d> maybe_pose = link.WorldPose(*ecm);
