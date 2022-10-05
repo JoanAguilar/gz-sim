@@ -122,9 +122,11 @@ void SinusoidalWrenchPlugin::PreUpdate(
 
   gz::sim::Entity link_entity = model.LinkByName(_ecm, kLinkName);
   ASSERT_NE(link_entity, gz::sim::kNullEntity);
+  _ecm.CreateComponent(link_entity, gz::sim::components::WorldPose());
 
   gz::sim::Link link = gz::sim::Link(link_entity);
   ASSERT_TRUE(link.Valid(_ecm));
+  link.EnableVelocityChecks(_ecm);
 
   // Get time in seconds.
   double t = std::chrono::duration<double>(_info.simTime).count();
@@ -174,14 +176,11 @@ TEST_F(EmptyTestFixture, MotionTest) {
   ASSERT_NE(link_entity, gz::sim::kNullEntity);
   gz::sim::Link link = gz::sim::Link(link_entity);
   ASSERT_TRUE(link.Valid(*ecm));
-  link.EnableVelocityChecks(*ecm);
 
-  // Check pose.
-  auto pose_component = ecm->Component<gz::sim::components::Pose>(link_entity);
-  EXPECT_NE(pose_component, nullptr);
-  if (pose_component != nullptr) {
-    gz::math::Pose3d pose = pose_component->Data();
-
+  const std::optional<gz::math::Pose3d> maybe_pose = link.WorldPose(*ecm);
+  EXPECT_TRUE(maybe_pose);
+  if (maybe_pose) {
+    const gz::math::Pose3d pose = maybe_pose.value();
     const std::optional<gz::math::Vector3d> maybe_pos = pose.Pos();
     EXPECT_TRUE(maybe_pos);
     if (maybe_pos) {
