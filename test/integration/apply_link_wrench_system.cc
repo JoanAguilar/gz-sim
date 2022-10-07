@@ -49,7 +49,6 @@ class ApplyLinkWrenchTestFixture : public InternalFixture<::testing::Test>
 };
 
 /////////////////////////////////////////////////
-// Persistent wrench defined on SDF file
 TEST_F(ApplyLinkWrenchTestFixture, GZ_UTILS_TEST_DISABLED_ON_WIN32(FromSdf))
 {
   TestFixture fixture(common::joinPaths(std::string(PROJECT_SOURCE_PATH),
@@ -108,7 +107,6 @@ TEST_F(ApplyLinkWrenchTestFixture, GZ_UTILS_TEST_DISABLED_ON_WIN32(FromSdf))
 }
 
 /////////////////////////////////////////////////
-// Wrench set from topic
 TEST_F(ApplyLinkWrenchTestFixture,
     GZ_UTILS_TEST_DISABLED_ON_WIN32(PersistentFromTopic))
 {
