@@ -34,6 +34,7 @@
 // World file path.
 const char *kWorldFilePath{"/test/worlds/added_mass.sdf"};
 
+// TODO: Switch to curly brace initialization? (applies to all)
 // Names of the models.
 const std::vector<std::string> kModelNames = {"body1", "body2", "body3"};
 
@@ -275,7 +276,7 @@ TEST_F(EmptyTestFixture, MotionTest) {
   serverConfig.SetUpdateRate(kRate);
   gz::sim::Server server = gz::sim::Server(serverConfig);
   auto system = std::make_shared<SinusoidalWrenchPlugin>();
-  server.AddSystem(system);
+  ASSERT_TRUE(server.AddSystem(system));
   ASSERT_FALSE(server.Running());
   ASSERT_TRUE(server.Run(true, kIter, false));
 
