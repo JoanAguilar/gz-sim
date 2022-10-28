@@ -32,7 +32,7 @@
 #include "../helpers/EnvTestFixture.hh"
 
 // World file path.
-const char *kWorldFilePath{"/test/worlds/added_mass.sdf"};
+const char *kWorldFilePath{"/test/worlds/added_mass_ellipsoids.sdf"};
 
 // TODO: Switch to curly brace initialization? (applies to all)
 // Names of the models.
