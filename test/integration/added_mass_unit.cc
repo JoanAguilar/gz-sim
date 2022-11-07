@@ -16,71 +16,85 @@
 
 #include "../helpers/EnvTestFixture.hh"
 
-const char * kWorldFilePath{"/test/worlds/added_mass_full_matrix.sdf"};
+const char *kWorldFilePath{"/test/worlds/added_mass_full_matrix.sdf"};
 const char *kWorldName{"added_mass"};
 const char *kModelName{"body"};
 const char *kLinkName{"link"};
 const double kRate{1000};
 
-// Struct to define the test cases.
-// Position, quaternion, linear velocity, angular velocity, force, and torque
-// are prescribed; linear and angular acceleration are expected values.
-struct TestCase {
+// Struct to define test inputs.
+struct TestInputs {
   gz::math::Vector3d pos;
   gz::math::Quaternion<double> quat;
   gz::math::Vector3d lin_vel;
   gz::math::Vector3d ang_vel;
   gz::math::Vector3d force;
   gz::math::Vector3d torque;
+};
+
+// Struct to define test outputs.
+struct TestOutputs {
   gz::math::Vector3d lin_acc;
   gz::math::Vector3d ang_acc;
+};
+
+// Struct to define test cases (inputs and outputs).
+struct TestCase {
+  TestInputs inputs;
+  TestOutputs outputs;
 };
 
 // Test cases.
 // Test case #1
 const TestCase kTestCase1{
-  // pos
-  gz::math::Vector3d(1, 2, 3),
-  // quat
-  gz::math::Quaternion<double>(0.5, 0.5, 0.5, 0.5),
-  // lin_vel
-  gz::math::Vector3d(4, 5, 6),
-  // ang_vel
-  gz::math::Vector3d(7, 8, 9),
-  // force
-  gz::math::Vector3d(
-    -0.2425045525045464,
-    0.33840815652747214,
-    -0.15400580887792237
-  ),
-  // torque
-  gz::math::Vector3d(
-    -0.3790807469203843,
-    -0.09043362906571706,
-    -0.8710546810958875
-  ),
-  // lin_acc
-  gz::math::Vector3d(
-    0.3874663983293944,
-    1.7746303236798542,
-    0.6515154938490635
-  ),
-  // ang_acc
-  gz::math::Vector3d(
-    -0.48991265864373107,
-    1.5425403599907457,
-    -3.3613871949733767
-  )
+  // inputs
+  TestInputs{
+    // pos
+    gz::math::Vector3d(1, 2, 3),
+    // quat
+    gz::math::Quaternion<double>(0.5, 0.5, 0.5, 0.5),
+    // lin_vel
+    gz::math::Vector3d(4, 5, 6),
+    // ang_vel
+    gz::math::Vector3d(7, 8, 9),
+    // force
+    gz::math::Vector3d(
+      -0.2425045525045464,
+      0.33840815652747214,
+      -0.15400580887792237
+    ),
+    // torque
+    gz::math::Vector3d(
+      -0.3790807469203843,
+      -0.09043362906571706,
+      -0.8710546810958875
+    )
+  },
+  // outputs
+  TestOutputs{
+    // lin_acc
+    gz::math::Vector3d(
+      0.3874663983293944,
+      1.7746303236798542,
+      0.6515154938490635
+    ),
+    // ang_acc
+    gz::math::Vector3d(
+      -0.48991265864373107,
+      1.5425403599907457,
+      -3.3613871949733767
+    )
+  }
 };
 
 // Vector of test cases.
 const std::vector<TestCase> kTestCases{kTestCase1};
 
-const int kNCases{kTestCases.size()};
+const std::size_t kNCases{kTestCases.size()};
 
 
-// Set the body's pose, velocity, and wrench, in the preupdate and reset; check
-// reported accelerations in the postupdate.
+// Set the body's pose, velocity, and wrench, in PreUpdate and Reset; check
+// reported accelerations in PostUpdate.
 class AccelerationCheckPlugin:
   public gz::sim::System,
   public gz::sim::ISystemConfigure,
@@ -88,7 +102,7 @@ class AccelerationCheckPlugin:
   public gz::sim::ISystemPreUpdate,
   public gz::sim::ISystemPostUpdate
 {
-  public: AccelerationCheckPlugin();
+  public: AccelerationCheckPlugin() = default;
 
   public: void Configure(
     const gz::sim::Entity &_entity,
@@ -112,25 +126,26 @@ class AccelerationCheckPlugin:
     const gz::sim::EntityComponentManager &_ecm
   ) override;
 
-  private: int counter{0};
+  // Whether to perform a check with the expected output values in PostUpdate.
+  public: bool performChecks{false};
+
+  // Determines which test case to use when setting up input values in
+  // Reset and PreUpdate, and output values in PostUpdate.
+  public: int caseNumber{0};
+
+  // Used to ensure that all the tests have run.
+  public: int testCounter{0};
+
+  private: void SetLink(gz::sim::EntityComponentManager &_ecm);
 
   private: gz::sim::Entity link_entity{gz::sim::kNullEntity};
 };
 
-// Store the number of test cases and initialize counter.
-AccelerationCheckPlugin::AccelerationCheckPlugin() {
-  this->counter = 0;
-}
-
-// Store the value of the link entity, add pose and velocity components, and
-// enable acceleration checks.
-void AccelerationCheckPlugin::Configure(
-  const gz::sim::Entity &,
-  const std::shared_ptr<const sdf::Element> &,
-  gz::sim::EntityComponentManager &_ecm,
-  gz::sim::EventManager &
-)
-{
+// Used by Configure and Reset to initialize the link ECM state.
+// Stores the value of the link entity, adds pose, velocity, and acceleration
+// components.
+void AccelerationCheckPlugin::SetLink(gz::sim::EntityComponentManager &_ecm) {
+  gzdbg << "Setting link." << std::endl;
   if (this->link_entity == gz::sim::kNullEntity) {
     gz::sim::Entity model_entity = _ecm.EntityByComponents(
       gz::sim::components::Name(kModelName),
@@ -142,49 +157,82 @@ void AccelerationCheckPlugin::Configure(
     this->link_entity = model.LinkByName(_ecm, kLinkName);
     ASSERT_NE(this->link_entity, gz::sim::kNullEntity);
   }
-  _ecm.CreateComponent(this->link_entity, gz::sim::components::WorldPose());
-  _ecm.CreateComponent(
-    this->link_entity,
-    gz::sim::components::WorldLinearVelocity()
+  ASSERT_NE(
+    _ecm.CreateComponent(this->link_entity, gz::sim::components::WorldPose()),
+    nullptr
   );
-  _ecm.CreateComponent(
-    this->link_entity,
-    gz::sim::components::WorldAngularVelocity()
+  ASSERT_NE(
+    _ecm.CreateComponent(
+      this->link_entity,
+      gz::sim::components::WorldLinearVelocity()
+    ),
+    nullptr
   );
-  _ecm.CreateComponent(
-    this->link_entity,
-    gz::sim::components::WorldLinearAcceleration()
+  ASSERT_NE(
+    _ecm.CreateComponent(
+      this->link_entity,
+      gz::sim::components::WorldAngularVelocity()
+    ),
+    nullptr
   );
-  _ecm.CreateComponent(
-    this->link_entity,
-    gz::sim::components::WorldAngularAcceleration()
+  ASSERT_NE(
+    _ecm.CreateComponent(
+      this->link_entity,
+      gz::sim::components::WorldLinearAcceleration()
+    ),
+    nullptr
+  );
+  ASSERT_NE(
+    _ecm.CreateComponent(
+      this->link_entity,
+      gz::sim::components::WorldAngularAcceleration()
+    ),
+    nullptr
   );
   gz::sim::Link link = gz::sim::Link(this->link_entity);
   ASSERT_TRUE(link.Valid(_ecm));
 };
 
-// Set pose and velocity.
+void AccelerationCheckPlugin::Configure(
+  const gz::sim::Entity &,
+  const std::shared_ptr<const sdf::Element> &,
+  gz::sim::EntityComponentManager &_ecm,
+  gz::sim::EventManager &
+)
+{
+  gzdbg << "Configure happening." << std::endl;
+  this->SetLink(_ecm);
+};
+
+// Sets link ECM state, pose, and velocity.
 void AccelerationCheckPlugin::Reset(
   const gz::sim::UpdateInfo &,
   gz::sim::EntityComponentManager &_ecm
 )
 {
-  // FIXME: This function never runs!
-  // TODO: Remove assert, it's only there to see if this code runs.
-  assert(false);
-  gz::math::Vector3d pos = kTestCases[this->counter].pos;
-  gz::math::Quaternion<double> quat = kTestCases[this->counter].quat;
+  gzdbg << "Reset happening." << std::endl;
+
+  this->SetLink(_ecm);
+
+  TestInputs inputs = kTestCases[this->caseNumber].inputs;
+  gz::math::Vector3d pos = inputs.pos;
+  gz::math::Quaternion<double> quat = inputs.quat;
   gz::math::Pose3d world_pose = gz::math::Pose3d(pos, quat);
+
+  gzdbg << "Setting link world position to: " << pos << std::endl;
+  gzdbg << "Setting link world orientation to: " << quat << std::endl;
   _ecm.SetComponentData<gz::sim::components::WorldPose>(
     this->link_entity,
     world_pose
   );
-  gz::math::Vector3d lin_vel = kTestCases[this->counter].lin_vel;
-  gz::math::Vector3d ang_vel = kTestCases[this->counter].ang_vel;
+  gz::math::Vector3d lin_vel = inputs.lin_vel;
+  gz::math::Vector3d ang_vel = inputs.ang_vel;
+  gzdbg << "Setting link world linear velocity to: " << lin_vel << std::endl;
   _ecm.SetComponentData<gz::sim::components::WorldLinearVelocity>(
     this->link_entity,
     lin_vel
   );
+  gzdbg << "Setting link world angular velocity to: " << ang_vel << std::endl;
   _ecm.SetComponentData<gz::sim::components::WorldAngularVelocity>(
     this->link_entity,
     ang_vel
@@ -197,47 +245,175 @@ void AccelerationCheckPlugin::PreUpdate(
   gz::sim::EntityComponentManager &_ecm
 )
 {
+  gzdbg << "PreUpdate happening." << std::endl;
+  // TODO: Remove. SetLink has already been called at either Configure or
+  // Reset.
+  this->SetLink(_ecm);
+
   ASSERT_NE(this->link_entity, gz::sim::kNullEntity);
   gz::sim::Link link = gz::sim::Link(this->link_entity);
   ASSERT_TRUE(link.Valid(_ecm));
-  gz::math::Vector3d force = kTestCases[this->counter].force;
-  gz::math::Vector3d torque = kTestCases[this->counter].torque;
+  TestInputs inputs = kTestCases[this->caseNumber].inputs;
+
+  // TODO: Remove. Either this block here or the exact same block in Reset.
+  gz::math::Vector3d pos = inputs.pos;
+  gz::math::Quaternion<double> quat = inputs.quat;
+  gz::math::Pose3d world_pose = gz::math::Pose3d(pos, quat);
+  gzdbg << "Setting link world position to: " << pos << std::endl;
+  gzdbg << "Setting link world orientation to: " << quat << std::endl;
+  _ecm.SetComponentData<gz::sim::components::WorldPose>(
+    this->link_entity,
+    world_pose
+  );
+  gz::math::Vector3d lin_vel = inputs.lin_vel;
+  gz::math::Vector3d ang_vel = inputs.ang_vel;
+  gzdbg << "Setting link world linear velocity to: " << lin_vel << std::endl;
+  _ecm.SetComponentData<gz::sim::components::WorldLinearVelocity>(
+    this->link_entity,
+    lin_vel
+  );
+  gzdbg << "Setting link world angular velocity to: " << ang_vel << std::endl;
+  _ecm.SetComponentData<gz::sim::components::WorldAngularVelocity>(
+    this->link_entity,
+    ang_vel
+  );
+  // END TODO
+
+  // TODO: Remove.
+  if (this->link_entity != gz::sim::kNullEntity && (gz::sim::Link(this->link_entity)).Valid(_ecm)) {
+    gz::sim::Link link = gz::sim::Link(this->link_entity);
+
+    std::optional<gz::math::Pose3d> maybe_pose = link.WorldPose(_ecm);
+    if (maybe_pose) {
+      gz::math::Pose3d pose = maybe_pose.value();
+      const gz::math::Vector3d pos = pose.Pos();
+      std::cout << "Position:\t" << pos << std::endl;
+      const gz::math::Quaternion<double> quat = pose.Rot();
+      std::cout << "Rotation:\t" << quat << std::endl;
+    }
+    else
+    {
+      std::cout << "Unable to retrieve link pose." << std::endl;
+    }
+
+    std::optional<gz::math::Vector3d> maybe_lin_vel = link.WorldLinearVelocity(_ecm);
+    if (maybe_lin_vel) {
+      gz::math::Vector3d lin_vel = maybe_lin_vel.value();
+      std::cout << "Linear velocity:\t" << lin_vel << std::endl;
+    }
+    else
+    {
+      std::cout << "Unable to retrieve linear velocity." << std::endl;
+    }
+
+    std::optional<gz::math::Vector3d> maybe_ang_vel = link.WorldAngularVelocity(_ecm);
+    if (maybe_ang_vel) {
+      gz::math::Vector3d ang_vel = maybe_ang_vel.value();
+      std::cout << "Angular velocity:\t" << ang_vel << std::endl;
+    }
+    else
+    {
+      std::cout << "Unable to retrieve angular velocity." << std::endl;
+    }
+  }
+  else
+  {
+    std::cout << "Link is not available." << std::endl;
+  }
+  // END TODO
+
+  gz::math::Vector3d force = inputs.force;
+  gz::math::Vector3d torque = inputs.torque;
+  gzdbg << "Setting link world force to: " << force << std::endl;
+  gzdbg << "Setting link world torque to: " << torque << std::endl;
   link.AddWorldWrench(_ecm, force, torque);
 };
 
-// Check linear and angular acceleration and increase the counter.
+// Check linear and angular acceleration.
 void AccelerationCheckPlugin::PostUpdate(
   const gz::sim::UpdateInfo &,
   const gz::sim::EntityComponentManager &_ecm
 )
 {
-  ASSERT_NE(this->link_entity, gz::sim::kNullEntity);
-  gz::sim::Link link = gz::sim::Link(this->link_entity);
-  ASSERT_TRUE(link.Valid(_ecm));
-  std::optional<gz::math::Vector3d> maybe_lin_acc =
-    link.WorldLinearAcceleration(_ecm);
-  EXPECT_TRUE(maybe_lin_acc);
-  if (maybe_lin_acc) {
-    gz::math::Vector3d lin_acc = maybe_lin_acc.value();
-    // TODO: Remove printouts.
-    std::cout << "Counter:\t" << this->counter << std::endl;
-    std::cout << "Expected:\t" << kTestCases[this->counter].lin_acc << std::endl;
-    std::cout << "Actual:\t\t" << lin_acc << std::endl;
-    EXPECT_LT((lin_acc - kTestCases[this->counter].lin_acc).Length(), 1e-6);
-  }
-  std::optional<gz::math::Vector3d> maybe_ang_acc =
-    link.WorldAngularAcceleration(_ecm);
-  EXPECT_TRUE(maybe_ang_acc);
-  if (maybe_ang_acc) {
-    gz::math::Vector3d ang_acc = maybe_ang_acc.value();
-    EXPECT_LT((ang_acc - kTestCases[this->counter].ang_acc).Length(), 1e-6);
-  }
+  gzdbg << "PostUpdate happening." << std::endl;
 
-  this->counter += 1;
+  // TODO: Remove.
+  if (this->link_entity != gz::sim::kNullEntity && (gz::sim::Link(this->link_entity)).Valid(_ecm)) {
+    gz::sim::Link link = gz::sim::Link(this->link_entity);
+
+    std::optional<gz::math::Pose3d> maybe_pose = link.WorldPose(_ecm);
+    if (maybe_pose) {
+      gz::math::Pose3d pose = maybe_pose.value();
+      const gz::math::Vector3d pos = pose.Pos();
+      std::cout << "Position:\t" << pos << std::endl;
+      const gz::math::Quaternion<double> quat = pose.Rot();
+      std::cout << "Rotation:\t" << quat << std::endl;
+    }
+    else
+    {
+      std::cout << "Unable to retrieve link pose." << std::endl;
+    }
+
+    std::optional<gz::math::Vector3d> maybe_lin_vel = link.WorldLinearVelocity(_ecm);
+    if (maybe_lin_vel) {
+      gz::math::Vector3d lin_vel = maybe_lin_vel.value();
+      std::cout << "Linear velocity:\t" << lin_vel << std::endl;
+    }
+    else
+    {
+      std::cout << "Unable to retrieve linear velocity." << std::endl;
+    }
+
+    std::optional<gz::math::Vector3d> maybe_ang_vel = link.WorldAngularVelocity(_ecm);
+    if (maybe_ang_vel) {
+      gz::math::Vector3d ang_vel = maybe_ang_vel.value();
+      std::cout << "Angular velocity:\t" << ang_vel << std::endl;
+    }
+    else
+    {
+      std::cout << "Unable to retrieve angular velocity." << std::endl;
+    }
+  }
+  else
+  {
+    std::cout << "Link is not available." << std::endl;
+  }
+  // END TODO
+
+  if (this->performChecks) {
+
+    gzdbg << "Performing checks." << std::endl;
+    this->testCounter += 1;
+    gzdbg << "Check number: " << this->testCounter << std::endl;
+
+    ASSERT_NE(this->link_entity, gz::sim::kNullEntity);
+    gz::sim::Link link = gz::sim::Link(this->link_entity);
+    ASSERT_TRUE(link.Valid(_ecm));
+    TestOutputs outputs = kTestCases[this->caseNumber].outputs;
+
+    std::optional<gz::math::Vector3d> maybe_lin_acc =
+      link.WorldLinearAcceleration(_ecm);
+    EXPECT_TRUE(maybe_lin_acc);
+    if (maybe_lin_acc) {
+      gz::math::Vector3d lin_acc = maybe_lin_acc.value();
+      // TODO: Remove printouts.
+      std::cout << "Expected linear acceleration:\t" << outputs.lin_acc << std::endl;
+      std::cout << "Actual linear acceleration:  \t" << lin_acc << std::endl;
+      EXPECT_LT((lin_acc - outputs.lin_acc).Length(), 1e-6);
+    }
+
+    std::optional<gz::math::Vector3d> maybe_ang_acc =
+      link.WorldAngularAcceleration(_ecm);
+    EXPECT_TRUE(maybe_ang_acc);
+    if (maybe_ang_acc) {
+      gz::math::Vector3d ang_acc = maybe_ang_acc.value();
+      EXPECT_LT((ang_acc - outputs.ang_acc).Length(), 1e-6);
+    }
+  }
 };
 
-// Reset the simulation world via transport.
-void worldReset()
+// Request a world reset via transport.
+void requestWorldReset()
 {
   std::string topic{"/world/" + std::string(kWorldName) + "/control"};
   gz::msgs::WorldControl req;
@@ -266,17 +442,31 @@ TEST_F(EmptyTestFixture, AccelerationTest) {
   // TODO: Is it really needed to set the rate?
   serverConfig.SetUpdateRate(kRate);
   gz::sim::Server server = gz::sim::Server(serverConfig);
-  std::shared_ptr<AccelerationCheckPlugin> system =
+  std::shared_ptr<AccelerationCheckPlugin> accelerationChecker =
     std::make_shared<AccelerationCheckPlugin>();
-  std::optional<bool> add_system_success = server.AddSystem(system);
-  ASSERT_TRUE(add_system_success);
-  if (add_system_success) {
-    ASSERT_TRUE(add_system_success.value());
+  std::optional<bool> maybe_system_added =
+    server.AddSystem(accelerationChecker);
+  ASSERT_TRUE(maybe_system_added);
+  if (maybe_system_added) {
+    ASSERT_TRUE(maybe_system_added.value());
   }
   ASSERT_FALSE(server.Running());
 
+  // Run one iteration in order to "initialize" physics.
+  ASSERT_TRUE(server.RunOnce(false));
+
   for (int i = 0; i < kNCases; i++) {
-    worldReset();
-    ASSERT_TRUE(server.RunOnce(false));
+    accelerationChecker->performChecks = false;
+    accelerationChecker->caseNumber = i;
+    requestWorldReset();
+    // It takes two iterations for a reset to happen. Only perform checks once
+    // it has happened.
+    ASSERT_TRUE(server.RunOnce(false));  // Reset requested.
+    ASSERT_TRUE(server.RunOnce(false));  // Reset happening.
+    accelerationChecker->performChecks = true;
+    ASSERT_TRUE(server.RunOnce(false));  // Checks happening.
   }
+
+  // Ensure that the right number of checks have been performed.
+  EXPECT_EQ(accelerationChecker->testCounter, kNCases);
 }
